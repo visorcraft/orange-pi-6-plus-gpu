@@ -1,0 +1,60 @@
+--- /tmp/linux-source-6.18-pristine/linux-source-6.18/drivers/firmware/arm_scmi/power.c	2026-01-11 08:26:20.000000000 -0600
++++ drivers/firmware/arm_scmi/power.c	2026-02-08 22:17:13.179171879 -0600
+@@ -134,6 +134,14 @@
+ 		dom_info->state_set_async = SUPPORTS_STATE_SET_ASYNC(flags);
+ 		dom_info->state_set_sync = SUPPORTS_STATE_SET_SYNC(flags);
+ 		strscpy(dom_info->name, attr->name, SCMI_SHORT_NAME_MAX_SIZE);
++
++		dev_info(ph->dev,
++			 "POWER_DOMAIN_ATTR[%u]: name=%s flags=0x%08x (sync=%d async=%d notify=%d ext=%d)\n",
++			 domain, dom_info->name, flags,
++			 dom_info->state_set_sync,
++			 dom_info->state_set_async,
++			 dom_info->state_set_notify,
++			 !!SUPPORTS_EXTENDED_NAMES(flags));
+ 	}
+ 	ph->xops->xfer_put(ph, t);
+ 
+@@ -155,19 +163,41 @@
+ 				u32 domain, u32 state)
+ {
+ 	int ret;
++	u32 flags = 0;
+ 	struct scmi_xfer *t;
+ 	struct scmi_power_set_state *st;
++	struct scmi_power_info *pi = ph->get_priv(ph);
++	struct power_dom_info *dom = NULL;
++
++	if (pi && domain < pi->num_domains)
++		dom = pi->dom_info + domain;
++
++	/*
++	 * Some firmwares only accept async STATE_SET. Mainline used to always
++	 * send flags=0 (sync). Choose async when sync is not supported.
++	 */
++	if (dom && !dom->state_set_sync && dom->state_set_async)
++		flags |= STATE_SET_ASYNC;
++
++	dev_info(ph->dev,
++		 "POWER_STATE_SET: domain=%u state=0x%08x flags=0x%x (sync=%d async=%d)\n",
++		 domain, state, flags,
++		 dom ? dom->state_set_sync : -1,
++		 dom ? dom->state_set_async : -1);
+ 
+ 	ret = ph->xops->xfer_get_init(ph, POWER_STATE_SET, sizeof(*st), 0, &t);
+ 	if (ret)
+ 		return ret;
+ 
+ 	st = t->tx.buf;
+-	st->flags = cpu_to_le32(0);
++	st->flags = cpu_to_le32(flags);
+ 	st->domain = cpu_to_le32(domain);
+ 	st->state = cpu_to_le32(state);
+ 
+ 	ret = ph->xops->do_xfer(ph, t);
++	if (ret)
++		dev_info(ph->dev,
++			 "POWER_STATE_SET: domain=%u ret=%d\n", domain, ret);
+ 
+ 	ph->xops->xfer_put(ph, t);
+ 	return ret;

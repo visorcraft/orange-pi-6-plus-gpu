@@ -1,0 +1,124 @@
+--- /tmp/linux-source-6.18-pristine/linux-source-6.18/drivers/pmdomain/arm/scmi_pm_domain.c	2026-01-11 08:26:20.000000000 -0600
++++ drivers/pmdomain/arm/scmi_pm_domain.c	2026-02-08 22:30:37.107035299 -0600
+@@ -10,6 +10,7 @@
+ #include <linux/module.h>
+ #include <linux/pm_domain.h>
+ #include <linux/scmi_protocol.h>
++#include <linux/delay.h>
+ 
+ static const struct scmi_power_proto_ops *power_ops;
+ 
+@@ -24,9 +25,35 @@
+ 
+ static int scmi_pd_power(struct generic_pm_domain *domain, u32 state)
+ {
++	int ret;
++	u32 ret_state;
+ 	struct scmi_pm_domain *pd = to_scmi_pd(domain);
+ 
+-	return power_ops->state_set(pd->ph, pd->domain, state);
++	pr_debug("scmi_pd_power: domain %s (%d) -> state 0x%x\n",
++		 pd->name, pd->domain, state);
++
++	ret = power_ops->state_set(pd->ph, pd->domain, state);
++	if (ret) {
++		pr_err("scmi_pd_power: state_set failed: %d\n", ret);
++		return ret;
++	}
++
++	/* Verify state was actually set (like vendor kernel does) */
++	ret = power_ops->state_get(pd->ph, pd->domain, &ret_state);
++	if (ret) {
++		pr_err("scmi_pd_power: state_get failed: %d\n", ret);
++		return ret;
++	}
++
++	if (state != ret_state) {
++		pr_err("scmi_pd_power: state mismatch! requested 0x%x, got 0x%x\n",
++		       state, ret_state);
++		return -EIO;
++	}
++
++	pr_debug("scmi_pd_power: domain %s state verified: 0x%x\n",
++		 pd->name, ret_state);
++	return 0;
+ }
+ 
+ static int scmi_pd_power_on(struct generic_pm_domain *domain)
+@@ -109,10 +136,45 @@
+ 	scmi_pd_data->num_domains = num_domains;
+ 
+ 	ret = of_genpd_add_provider_onecell(np, scmi_pd_data);
++	if (ret && !np) {
++		/* ACPI: no DT node, skip genpd provider registration */
++		dev_info(dev, "ACPI: skipping genpd provider registration (no of_node)\n");
++		ret = 0;
++	}
+ 	if (ret)
+ 		goto err_rm_genpds;
+ 
+ 	dev_set_drvdata(dev, scmi_pd_data);
++	dev_info(dev, "Initialized %d power domains\n", num_domains);
++
++	/* ACPI debug + best-effort kick: enumerate and try to turn GPU-ish domains ON. */
++	if (!np) {
++		for (i = 0; i < num_domains; i++) {
++			const char *n = power_ops->name_get(ph, i);
++			u32 st = 0;
++			int gr;
++			if (!n)
++				continue;
++			gr = power_ops->state_get(ph, i, &st);
++			dev_info(dev, "ACPI: power domain[%d]=%s state_get=%d state=0x%08x\n",
++				 i, n, gr, st);
++			if (strnstr(n, "GPU", 3) || strstr(n, "gpu") || strstr(n, "GPUTOP")) {
++				/*
++				 * Some firmwares only deassert resets on an OFF->ON transition.
++				 * If this is the TF-A devpd gpu_pd (domain 21 on Sky1), force a toggle.
++				 */
++				if (!strcmp(n, "gpu_pd")) {
++					ret = power_ops->state_set(ph, i, SCMI_POWER_STATE_GENERIC_OFF);
++					dev_info(dev, "ACPI: POWER_STATE_SET(%s[%d], GENERIC_OFF) => %d\n", n, i, ret);
++					msleep(50);
++				}
++				ret = power_ops->state_set(ph, i, SCMI_POWER_STATE_GENERIC_ON);
++				dev_info(dev, "ACPI: POWER_STATE_SET(%s[%d], GENERIC_ON) => %d\n", n, i, ret);
++				if (!ret && !power_ops->state_get(ph, i, &st))
++					dev_info(dev, "ACPI: %s[%d] state now 0x%08x\n", n, i, st);
++			}
++		}
++	}
+ 
+ 	return 0;
+ err_rm_genpds:
+@@ -129,7 +191,8 @@
+ 	struct device *dev = &sdev->dev;
+ 	struct device_node *np = dev->of_node;
+ 
+-	of_genpd_del_provider(np);
++	if (np)
++		of_genpd_del_provider(np);
+ 
+ 	scmi_pd_data = dev_get_drvdata(dev);
+ 	for (i = 0; i < scmi_pd_data->num_domains; i++) {
+@@ -151,7 +214,20 @@
+ 	.remove = scmi_pm_domain_remove,
+ 	.id_table = scmi_id_table,
+ };
++
++/* CIX Sky1 needs early SCMI power domain init so GPU access permissions
++ * are configured before other drivers probe. Vendor kernel uses
++ * subsys_initcall_sync for this purpose.
++ */
++#ifdef CONFIG_ARCH_CIX
++static int __init scmi_power_domain_init(void)
++{
++	return scmi_register(&scmi_power_domain_driver);
++}
++subsys_initcall_sync(scmi_power_domain_init);
++#else
+ module_scmi_driver(scmi_power_domain_driver);
++#endif
+ 
+ MODULE_AUTHOR("Sudeep Holla <sudeep.holla@arm.com>");
+ MODULE_DESCRIPTION("ARM SCMI power domain driver");

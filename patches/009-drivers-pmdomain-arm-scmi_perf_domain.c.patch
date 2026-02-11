@@ -1,0 +1,73 @@
+--- /tmp/linux-source-6.18-pristine/linux-source-6.18/drivers/pmdomain/arm/scmi_perf_domain.c	2026-01-11 08:26:20.000000000 -0600
++++ drivers/pmdomain/arm/scmi_perf_domain.c	2026-02-08 22:01:31.417419732 -0600
+@@ -88,8 +88,10 @@
+ 	if (!handle)
+ 		return -ENODEV;
+ 
+-	/* The OF node must specify us as a power-domain provider. */
+-	if (!of_find_property(dev->of_node, "#power-domain-cells", NULL))
++	/* The OF node must specify us as a power-domain provider.
++	 * On ACPI (no of_node), skip this check and proceed. */
++	if (dev->of_node &&
++	    !of_find_property(dev->of_node, "#power-domain-cells", NULL))
+ 		return 0;
+ 
+ 	perf_ops = handle->devm_protocol_get(sdev, SCMI_PROTOCOL_PERF, &ph);
+@@ -142,11 +144,47 @@
+ 	scmi_pd_data->num_domains = num_domains;
+ 
+ 	ret = of_genpd_add_provider_onecell(dev->of_node, scmi_pd_data);
++	if (ret && !dev->of_node) {
++		/* ACPI: no DT node, genpd provider registration fails.
++		 * Domains are still usable via direct pm_genpd_lookup. */
++		dev_info(dev, "ACPI: skipping genpd provider registration (no of_node)\n");
++		ret = 0;
++	}
+ 	if (ret)
+ 		goto err;
+ 
+ 	dev_set_drvdata(dev, scmi_pd_data);
+ 	dev_info(dev, "Initialized %d performance domains", num_domains);
++
++	/*
++	 * ACPI quirk for CIX Sky1: GPU appears held in secure reset until
++	 * a performance level is requested through the SCMI PERF protocol.
++	 * Panthor does not attach to genpd on ACPI, so kick the GPU domains
++	 * here as a best-effort.
++	 */
++	if (!dev->of_node) {
++		u32 maxp, minp;
++		for (i = 0; i < num_domains; i++) {
++			const char *n = scmi_pd_data->domains[i]->name;
++			if (!n)
++				continue;
++			if (strstr(n, "gpu"))
++				dev_info(dev, "ACPI: perf domain[%d]=%s\n", i, n);
++			if (strcmp(n, "gpu_core") && strcmp(n, "gpu_top"))
++				continue;
++			ret = perf_ops->limits_get(ph, i, &maxp, &minp);
++			if (ret) {
++				dev_warn(dev, "ACPI: %s limits_get failed: %d (trying defaults)\n", n, ret);
++				if (!strcmp(n, "gpu_core"))
++					maxp = 1000000;
++				else
++					maxp = 900000;
++			}
++			ret = perf_ops->level_set(ph, i, maxp, false);
++			dev_info(dev, "ACPI: %s level_set(%u) => %d\n", n, maxp, ret);
++		}
++	}
++
+ 	return 0;
+ err:
+ 	for (i--; i >= 0; i--)
+@@ -163,7 +201,8 @@
+ 	if (!scmi_pd_data)
+ 		return;
+ 
+-	of_genpd_del_provider(dev->of_node);
++	if (dev->of_node)
++		of_genpd_del_provider(dev->of_node);
+ 
+ 	for (i = 0; i < scmi_pd_data->num_domains; i++)
+ 		pm_genpd_remove(scmi_pd_data->domains[i]);

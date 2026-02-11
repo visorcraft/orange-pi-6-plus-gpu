@@ -1,0 +1,138 @@
+--- /tmp/linux-source-6.18-pristine/linux-source-6.18/drivers/firmware/arm_scmi/transports/mailbox.c	2026-01-11 08:26:20.000000000 -0600
++++ drivers/firmware/arm_scmi/transports/mailbox.c	2026-02-08 19:09:32.104633229 -0600
+@@ -12,6 +12,7 @@
+ #include <linux/of.h>
+ #include <linux/of_address.h>
+ #include <linux/platform_device.h>
++#include <linux/property.h>
+ #include <linux/slab.h>
+ 
+ #include "../common.h"
+@@ -87,6 +88,10 @@
+ 	 * in mailbox_chan_setup().
+ 	 */
+ 	num_mb = of_count_phandle_with_args(of_node, "mboxes", "#mbox-cells");
++	if (num_mb <= 0) {
++		/* ACPI path: report available for BASE channel setup */
++		return true;
++	}
+ 	if (num_mb == 3 && idx == 1)
+ 		idx = 2;
+ 
+@@ -120,6 +125,38 @@
+ 
+ 	num_mb = of_count_phandle_with_args(np, "mboxes", "#mbox-cells");
+ 	num_sh = of_count_phandle_with_args(np, "shmem", NULL);
++
++	/* ACPI/fwnode fallback: count references by iteration.
++	 * The SCMI transport device (cdev) may be a child scmi_device whose
++	 * fwnode is NULL; walk up to the parent (arm-scmi platform device)
++	 * which carries the ACPI fwnode with mboxes/shmem properties.
++	 */
++	if (num_mb <= 0) {
++		struct fwnode_handle *fw = cdev->fwnode;
++		struct fwnode_reference_args args;
++		int i;
++
++		if (!fw && cdev->parent)
++			fw = cdev->parent->fwnode;
++		if (fw) {
++			num_mb = 0;
++			for (i = 0; i < 8; i++) {
++				if (fwnode_property_get_reference_args(fw,
++						"mboxes", "#mbox-cells", 1, i, &args))
++					break;
++				num_mb++;
++			}
++			num_sh = 0;
++			for (i = 0; i < 4; i++) {
++				struct fwnode_handle *fh = fwnode_find_reference(fw, "shmem", i);
++				if (IS_ERR_OR_NULL(fh))
++					break;
++				fwnode_handle_put(fh);
++				num_sh++;
++			}
++		}
++	}
++
+ 	dev_dbg(cdev, "Found %d mboxes and %d shmems !\n", num_mb, num_sh);
+ 
+ 	/* Bail out if mboxes and shmem descriptors are inconsistent */
+@@ -133,7 +170,7 @@
+ 	}
+ 
+ 	/* Bail out if provided shmem descriptors do not refer distinct areas  */
+-	if (num_sh > 1) {
++	if (num_sh > 1 && np) {
+ 		struct device_node *np_tx __free(device_node) =
+ 					of_parse_phandle(np, "shmem", 0);
+ 		struct device_node *np_rx __free(device_node) =
+@@ -143,6 +180,20 @@
+ 			dev_warn(cdev, "Invalid shmem descriptor for '%pOF'\n", np);
+ 			ret = -EINVAL;
+ 		}
++	} else if (num_sh > 1) {
++		struct fwnode_handle *fw = cdev->fwnode;
++		struct fwnode_handle *fw_tx, *fw_rx;
++
++		if (!fw && cdev->parent)
++			fw = cdev->parent->fwnode;
++		fw_tx = fw ? fwnode_find_reference(fw, "shmem", 0) : NULL;
++		fw_rx = fw ? fwnode_find_reference(fw, "shmem", 1) : NULL;
++		if (IS_ERR_OR_NULL(fw_tx) || IS_ERR_OR_NULL(fw_rx) || fw_tx == fw_rx) {
++			dev_warn(cdev, "Invalid shmem fwnode descriptor\n");
++			ret = -EINVAL;
++		}
++		if (!IS_ERR_OR_NULL(fw_tx)) fwnode_handle_put(fw_tx);
++		if (!IS_ERR_OR_NULL(fw_rx)) fwnode_handle_put(fw_rx);
+ 	}
+ 
+ 	/* Calculate channels IDs to use depending on mboxes/shmem layout */
+@@ -368,9 +419,9 @@
+ 
+ static struct scmi_desc scmi_mailbox_desc = {
+ 	.ops = &scmi_mailbox_ops,
+-	.max_rx_timeout_ms = 30, /* We may increase this if required */
++	.max_rx_timeout_ms = 300, /* CIX SCP needs more time (vendor uses 300) */
+ 	.max_msg = 20, /* Limited by MBOX_TX_QUEUE_LEN */
+-	.max_msg_size = SCMI_SHMEM_MAX_PAYLOAD_SIZE,
++	.max_msg_size = SCMI_SHMEM_MAX_PAYLOAD_SIZE, /* 104; shmem=128 minus 24 overhead */
+ };
+ 
+ static const struct of_device_id scmi_of_match[] = {
+@@ -379,9 +430,34 @@
+ };
+ MODULE_DEVICE_TABLE(of, scmi_of_match);
+ 
++#ifdef CONFIG_ARCH_CIX
++#include <linux/acpi.h>
++static const struct acpi_device_id scmi_mailbox_acpi_match[] = {
++	{ "CIXHA006", 0 },
++	{ }
++};
++MODULE_DEVICE_TABLE(acpi, scmi_mailbox_acpi_match);
++#endif
++
+ DEFINE_SCMI_TRANSPORT_DRIVER(scmi_mailbox, scmi_mailbox_driver,
+ 			     scmi_mailbox_desc, scmi_of_match, core);
+-module_platform_driver(scmi_mailbox_driver);
++
++/* Patch in ACPI match table after macro expansion */
++static int __init scmi_mailbox_acpi_init(void)
++{
++#ifdef CONFIG_ARCH_CIX
++	scmi_mailbox_driver.driver.acpi_match_table = scmi_mailbox_acpi_match;
++#endif
++	return platform_driver_register(&scmi_mailbox_driver);
++}
++
++static void __exit scmi_mailbox_acpi_exit(void)
++{
++	platform_driver_unregister(&scmi_mailbox_driver);
++}
++
++module_init(scmi_mailbox_acpi_init);
++module_exit(scmi_mailbox_acpi_exit);
+ 
+ MODULE_AUTHOR("Sudeep Holla <sudeep.holla@arm.com>");
+ MODULE_DESCRIPTION("SCMI Mailbox Transport driver");

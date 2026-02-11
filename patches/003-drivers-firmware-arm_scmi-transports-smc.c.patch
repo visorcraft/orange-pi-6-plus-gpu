@@ -1,0 +1,123 @@
+--- /tmp/linux-source-6.18-pristine/linux-source-6.18/drivers/firmware/arm_scmi/transports/smc.c	2026-01-11 08:26:20.000000000 -0600
++++ drivers/firmware/arm_scmi/transports/smc.c	2026-02-08 22:21:44.280435751 -0600
+@@ -84,14 +84,27 @@
+ 	return IRQ_HANDLED;
+ }
+ 
++static unsigned long acpi_smc_func_id = 0xc2000001;
++module_param(acpi_smc_func_id, ulong, 0444);
++MODULE_PARM_DESC(acpi_smc_func_id, "ACPI fallback: SMC function id for SCMI-over-SMC");
++
++static unsigned long acpi_smc_shmem = 0x84380000;
++module_param(acpi_smc_shmem, ulong, 0444);
++MODULE_PARM_DESC(acpi_smc_shmem, "ACPI fallback: shmem base physical address for SCMI-over-SMC");
++
+ static bool smc_chan_available(struct device_node *of_node, int idx)
+ {
+-	struct device_node *np __free(device_node) =
++	/* DT path */
++	if (of_node) {
++		struct device_node *np __free(device_node) =
+ 					of_parse_phandle(of_node, "shmem", 0);
+-	if (!np)
+-		return false;
++		if (!np)
++			return false;
++		return true;
++	}
+ 
+-	return true;
++	/* ACPI fallback: require module param shmem */
++	return acpi_smc_shmem != 0;
+ }
+ 
+ static inline void smc_channel_lock_init(struct scmi_smc *scmi_info)
+@@ -139,6 +152,8 @@
+ 	u32 func_id;
+ 	int ret;
+ 
++	/* (debug removed) */
++
+ 	if (!tx)
+ 		return -ENODEV;
+ 
+@@ -148,14 +163,27 @@
+ 
+ 	scmi_info->shmem = core->shmem->setup_iomap(cinfo, dev, tx, &res,
+ 						    &scmi_info->io_ops);
+-	if (IS_ERR(scmi_info->shmem))
++	if (IS_ERR(scmi_info->shmem)) {
++		pr_err("smc_chan_setup: setup_iomap failed: %ld\n",
++		       PTR_ERR(scmi_info->shmem));
+ 		return PTR_ERR(scmi_info->shmem);
++	}
+ 
+-	ret = of_property_read_u32(dev->of_node, "arm,smc-id", &func_id);
+-	if (ret < 0)
+-		return ret;
++	if (dev->of_node) {
++		ret = of_property_read_u32(dev->of_node, "arm,smc-id", &func_id);
++		if (ret < 0) {
++			pr_err("smc_chan_setup: arm,smc-id read failed: %d\n", ret);
++			return ret;
++		}
++	} else {
++		func_id = (u32)acpi_smc_func_id;
++		pr_info("smc_chan_setup: ACPI fallback func_id=0x%x\n", func_id);
++		/* Provide shmem param page/offset always for ACPI */
++		scmi_info->param_page = SHMEM_PAGE(acpi_smc_shmem);
++		scmi_info->param_offset = SHMEM_OFFSET(acpi_smc_shmem);
++	}
+ 
+-	if (of_device_is_compatible(dev->of_node, "qcom,scmi-smc")) {
++	if (dev->of_node && of_device_is_compatible(dev->of_node, "qcom,scmi-smc")) {
+ 		resource_size_t size = resource_size(&res);
+ 		void __iomem *ptr = (void __iomem *)scmi_info->shmem + size - 8;
+ 		/* The capability-id is kept in last 8 bytes of shmem.
+@@ -168,7 +196,7 @@
+ 		memcpy_fromio(&cap_id, ptr, sizeof(cap_id));
+ 	}
+ 
+-	if (of_device_is_compatible(dev->of_node, "arm,scmi-smc-param")) {
++	if (dev->of_node && of_device_is_compatible(dev->of_node, "arm,scmi-smc-param")) {
+ 		scmi_info->param_page = SHMEM_PAGE(res.start);
+ 		scmi_info->param_offset = SHMEM_OFFSET(res.start);
+ 	}
+@@ -177,7 +205,7 @@
+ 	 * completion of a message is signaled by an interrupt rather than by
+ 	 * the return of the SMC call.
+ 	 */
+-	scmi_info->irq = of_irq_get_byname(cdev->of_node, "a2p");
++	scmi_info->irq = cdev->of_node ? of_irq_get_byname(cdev->of_node, "a2p") : -ENODEV;
+ 	if (scmi_info->irq > 0) {
+ 		ret = request_irq(scmi_info->irq, smc_msg_done_isr,
+ 				  IRQF_NO_SUSPEND, dev_name(dev), scmi_info);
+@@ -305,7 +333,27 @@
+ 
+ DEFINE_SCMI_TRANSPORT_DRIVER(scmi_smc, scmi_smc_driver, scmi_smc_desc,
+ 			     scmi_of_match, core);
+-module_platform_driver(scmi_smc_driver);
++
++static const struct platform_device_id scmi_smc_id_table[] = {
++	{ .name = "arm-scmi-smc" },
++	{ /* sentinel */ },
++};
++MODULE_DEVICE_TABLE(platform, scmi_smc_id_table);
++
++static int scmi_smc_platform_probe(struct platform_device *pdev)
++{
++	return scmi_smc_probe(pdev);
++}
++
++static struct platform_driver scmi_smc_platform_driver = {
++	.driver = {
++		.name = "arm-scmi-smc",
++		.of_match_table = scmi_of_match,
++	},
++	.probe = scmi_smc_platform_probe,
++	.id_table = scmi_smc_id_table,
++};
++module_platform_driver(scmi_smc_platform_driver);
+ 
+ MODULE_AUTHOR("Peng Fan <peng.fan@nxp.com>");
+ MODULE_AUTHOR("Nikunj Kela <quic_nkela@quicinc.com>");

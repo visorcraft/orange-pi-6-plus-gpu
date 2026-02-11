@@ -1,0 +1,84 @@
+--- /tmp/linux-source-6.18-pristine/linux-source-6.18/drivers/firmware/arm_scmi/driver.c	2026-01-11 08:26:20.000000000 -0600
++++ drivers/firmware/arm_scmi/driver.c	2026-02-08 21:32:01.782391458 -0600
+@@ -2663,6 +2663,21 @@
+ 	idx = tx ? 0 : 1;
+ 	idr = tx ? &info->tx_idr : &info->rx_idr;
+ 
++	/* ACPI fallback: non-BASE protocols share the BASE channel since
++	 * there are no per-protocol DT children with separate mbox refs.
++	 */
++	if (!of_node && prot_id != SCMI_PROTOCOL_BASE) {
++		cinfo = idr_find(idr, SCMI_PROTOCOL_BASE);
++		if (unlikely(!cinfo)) {
++			pr_err("SCMI ACPI: no BASE %s channel in idr for proto 0x%x\n",
++				tx ? "TX" : "RX", prot_id);
++			return -EINVAL;
++		}
++		pr_info("SCMI ACPI: sharing BASE %s channel for proto 0x%x (cinfo=%px)\n",
++			 tx ? "TX" : "RX", prot_id, cinfo);
++		goto idr_alloc;
++	}
++
+ 	if (!info->desc->ops->chan_available(of_node, idx)) {
+ 		cinfo = idr_find(idr, SCMI_PROTOCOL_BASE);
+ 		if (unlikely(!cinfo)) /* Possible only if platform has no Rx */
+@@ -2871,6 +2886,9 @@
+ 	np = idr_find(&info->active_protocols, id_table->protocol_id);
+ 	if (!np)
+ 		return NOTIFY_DONE;
++	/* On ACPI we store ERR_PTR(-1) as sentinel; treat as NULL np */
++	if (IS_ERR(np))
++		np = NULL;
+ 
+ 	dev_dbg(info->dev, "%sRequested device (%s) for protocol 0x%x\n",
+ 		action == SCMI_BUS_NOTIFY_DEVICE_REQUEST ? "" : "UN-",
+@@ -3273,6 +3291,49 @@
+ 		scmi_create_protocol_devices(child, info, prot_id, NULL);
+ 	}
+ 
++	/* ACPI fallback: if no DT children, auto-discover protocols from
++	 * the firmware's implementation list, set up shared channels, and
++	 * create devices for them.
++	 */
++	if (!np && info->protocols_imp) {
++		struct scmi_revision_info *rev = handle->version;
++		u8 *imp = info->protocols_imp;
++		int i;
++
++		dev_info(dev, "SCMI ACPI: %d protocols discovered, creating devices\n",
++			 rev->num_protocols);
++
++		for (i = 0; i < rev->num_protocols; i++) {
++			u8 prot_id = imp[i];
++
++			if (prot_id == SCMI_PROTOCOL_BASE)
++				continue;
++
++			/* Set up shared channel (reuses BASE channel) */
++			ret = scmi_txrx_setup(info, NULL, prot_id);
++			if (ret) {
++				dev_err(dev, "SCMI ACPI: failed to setup channel for protocol 0x%x: %d\n",
++					 prot_id, ret);
++				continue;
++			}
++			dev_info(dev, "SCMI ACPI: channel ready for protocol 0x%x\n", prot_id);
++
++			/* Store ERR_PTR(-1) instead of NULL so notifier
++			 * idr_find doesn't treat it as "not found" */
++			ret = idr_alloc(&info->active_protocols,
++					ERR_PTR(-1),
++					prot_id, prot_id + 1, GFP_KERNEL);
++			if (ret != prot_id) {
++				dev_warn(dev, "SCMI ACPI: idr_alloc failed for 0x%x: %d\n",
++					 prot_id, ret);
++				continue;
++			}
++
++			scmi_create_protocol_devices(NULL, info, prot_id,
++						     NULL);
++		}
++	}
++
+ 	return 0;
+ 
+ notification_exit:

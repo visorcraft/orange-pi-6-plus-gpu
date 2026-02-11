@@ -1,0 +1,42 @@
+#!/bin/sh
+exec tail -n +3 $0
+
+menuentry "Sky1 Linux, with Linux 6.19.0-rc8-sky1-rc.r6 (GPU+NPU)" --class debian --class gnu-linux --class gnu --class os {
+	load_video
+	insmod gzio
+	insmod part_gpt
+	insmod ext2
+	search --no-floppy --fs-uuid --set=root 3c0229bb-91ca-4895-8257-e2b86c42ebe2
+	echo "Loading Sky1 Linux 6.19.0-rc8-sky1-rc.r6 ..."
+	linux /boot/vmlinuz-6.19.0-rc8-sky1-rc.r6 root=UUID=3c0229bb-91ca-4895-8257-e2b86c42ebe2 ro loglevel=7 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=off clk_ignore_unused linlon_dp.enable_fb=1 linlon_dp.enable_render=0 fbcon=map:01111111 rootwait
+	echo "Loading initial ramdisk ..."
+	initrd /boot/initrd.img-6.19.0-rc8-sky1-rc.r6
+	echo "Loading device tree ..."
+	devicetree /boot/dtb/sky1-orangepi-6-plus.dtb
+}
+
+menuentry "Armbian, with Linux 6.18.9-current-arm64" --class armbian --class gnu-linux --class gnu --class os {
+	load_video
+	insmod gzio
+	insmod part_gpt
+	insmod ext2
+	search --no-floppy --fs-uuid --set=root 3c0229bb-91ca-4895-8257-e2b86c42ebe2
+	echo "Loading Armbian 6.18.9-current-arm64 ..."
+	linux /boot/vmlinuz-6.18.9-current-arm64 root=UUID=3c0229bb-91ca-4895-8257-e2b86c42ebe2 ro console=tty1 console=ttyAMA2,115200 rootwait
+	echo "Loading initial ramdisk ..."
+	initrd /boot/initrd.img-6.18.9-current-arm64
+}
+
+menuentry "Sky1 Rebuild Test" --class debian --class gnu-linux --class gnu --class os {
+	load_video
+	insmod gzio
+	insmod part_gpt
+	insmod ext2
+	search --no-floppy --fs-uuid --set=root 3c0229bb-91ca-4895-8257-e2b86c42ebe2
+	echo "Loading Sky1 Linux 6.19.0-rc8-sky1-rc.r6 ..."
+	linux /boot/vmlinuz-6.19.0-rc8-sky1-rc.r6 root=UUID=3c0229bb-91ca-4895-8257-e2b86c42ebe2 ro loglevel=7 console=tty0 console=ttyAMA2,115200 efi=noruntime acpi=off clk_ignore_unused linlon_dp.enable_fb=1 linlon_dp.enable_render=0 fbcon=map:01111111 rootwait
+	echo "Loading initial ramdisk ..."
+	initrd /boot/initrd.img-6.19.0-rc8-sky1-rc.r6
+	echo "Loading device tree ..."
+	devicetree /boot/dtb/sky1-orangepi-6-plus.dtb
+}

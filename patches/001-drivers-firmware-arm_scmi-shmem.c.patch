@@ -1,0 +1,100 @@
+--- /tmp/linux-source-6.18-pristine/linux-source-6.18/drivers/firmware/arm_scmi/shmem.c	2026-01-11 08:26:20.000000000 -0600
++++ drivers/firmware/arm_scmi/shmem.c	2026-02-08 16:25:35.116607005 -0600
+@@ -9,6 +9,8 @@
+ #include <linux/io.h>
+ #include <linux/of.h>
+ #include <linux/of_address.h>
++#include <linux/property.h>
++#include <linux/platform_device.h>
+ #include <linux/processor.h>
+ #include <linux/types.h>
+ 
+@@ -196,30 +198,67 @@
+ 				       struct resource *res,
+ 				       struct scmi_shmem_io_ops **ops)
+ {
+-	struct device_node *shmem __free(device_node);
++	struct device_node *shmem __free(device_node) = NULL;
+ 	const char *desc = tx ? "Tx" : "Rx";
+ 	int ret, idx = tx ? 0 : 1;
+ 	struct device *cdev = cinfo->dev;
+ 	struct resource lres = {};
+ 	resource_size_t size;
+ 	void __iomem *addr;
+-	u32 reg_io_width;
+-
+-	shmem = of_parse_phandle(cdev->of_node, "shmem", idx);
+-	if (!shmem)
+-		return IOMEM_ERR_PTR(-ENODEV);
+-
+-	if (!of_device_is_compatible(shmem, "arm,scmi-shmem"))
+-		return IOMEM_ERR_PTR(-ENXIO);
++	u32 reg_io_width = 0;
+ 
+ 	/* Use a local on-stack as a working area when not provided */
+ 	if (!res)
+ 		res = &lres;
+ 
+-	ret = of_address_to_resource(shmem, 0, res);
+-	if (ret) {
+-		dev_err(cdev, "failed to get SCMI %s shared memory\n", desc);
+-		return IOMEM_ERR_PTR(ret);
++	shmem = of_parse_phandle(cdev->of_node, "shmem", idx);
++	if (shmem) {
++		/* DT path */
++		if (!of_device_is_compatible(shmem, "arm,scmi-shmem"))
++			return IOMEM_ERR_PTR(-ENXIO);
++
++		ret = of_address_to_resource(shmem, 0, res);
++		if (ret) {
++			dev_err(cdev, "failed to get SCMI %s shared memory\n", desc);
++			return IOMEM_ERR_PTR(ret);
++		}
++		of_property_read_u32(shmem, "reg-io-width", &reg_io_width);
++	} else {
++		/* ACPI/fwnode path: resolve shmem reference via fwnode.
++		 * Walk up to parent if current device has no fwnode.
++		 */
++		struct fwnode_handle *fw = cdev->fwnode;
++		struct fwnode_handle *shmem_fwnode;
++
++		if (!fw && cdev->parent)
++			fw = cdev->parent->fwnode;
++		if (!fw)
++			return IOMEM_ERR_PTR(-ENODEV);
++		struct device *rdev;
++		struct platform_device *pdev;
++
++		shmem_fwnode = fwnode_find_reference(fw, "shmem", idx);
++		if (IS_ERR_OR_NULL(shmem_fwnode)) {
++			dev_err(cdev, "failed to find SCMI %s shmem fwnode[%d]\n", desc, idx);
++			return IOMEM_ERR_PTR(-ENODEV);
++		}
++
++		rdev = bus_find_device_by_fwnode(&platform_bus_type, shmem_fwnode);
++		fwnode_handle_put(shmem_fwnode);
++		if (!rdev) {
++			dev_err(cdev, "failed to find SCMI %s shmem platform device\n", desc);
++			return IOMEM_ERR_PTR(-EPROBE_DEFER);
++		}
++
++		pdev = to_platform_device(rdev);
++		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++		put_device(rdev);
++		if (!res) {
++			dev_err(cdev, "failed to get SCMI %s shmem resource\n", desc);
++			return IOMEM_ERR_PTR(-EINVAL);
++		}
++		/* CIX SCMI uses 32-bit word I/O */
++		reg_io_width = 4;
+ 	}
+ 
+ 	size = resource_size(res);
+@@ -234,7 +273,6 @@
+ 		return IOMEM_ERR_PTR(-EADDRNOTAVAIL);
+ 	}
+ 
+-	of_property_read_u32(shmem, "reg-io-width", &reg_io_width);
+ 	switch (reg_io_width) {
+ 	case 4:
+ 		*ops = &shmem_io_ops32;

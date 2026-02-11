@@ -1,0 +1,17 @@
+--- /tmp/linux-source-6.18-pristine/linux-source-6.18/drivers/firmware/arm_scmi/bus.c	2026-01-11 08:26:20.000000000 -0600
++++ drivers/firmware/arm_scmi/bus.c	2026-02-08 16:32:30.542709176 -0600
+@@ -465,7 +465,13 @@
+ 	scmi_dev->id = id;
+ 	scmi_dev->protocol_id = protocol;
+ 	scmi_dev->dev.parent = parent;
+-	device_set_node(&scmi_dev->dev, of_fwnode_handle(np));
++	/* On ACPI, np is NULL; propagate parent's fwnode so mailbox
++	 * framework can resolve mboxes/shmem references.
++	 */
++	if (np)
++		device_set_node(&scmi_dev->dev, of_fwnode_handle(np));
++	else if (parent && parent->fwnode)
++		device_set_node(&scmi_dev->dev, parent->fwnode);
+ 	scmi_dev->dev.bus = &scmi_bus_type;
+ 	scmi_dev->dev.release = scmi_device_release;
+ 	dev_set_name(&scmi_dev->dev, "scmi_dev.%d", id);

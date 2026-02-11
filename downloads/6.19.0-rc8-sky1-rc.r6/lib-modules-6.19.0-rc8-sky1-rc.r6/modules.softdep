@@ -1,0 +1,16 @@
+# Soft dependencies extracted from modules themselves.
+softdep btrfs pre: blake2b-256
+softdep btrfs pre: sha256
+softdep btrfs pre: xxhash64
+softdep btrfs pre: crc32c
+softdep xts pre: ecb
+softdep pcie_brcmstb pre: irq_bcm2712_mip
+softdep ipmi_msghandler post: ipmi_devintf
+softdep host1x post: tegra-drm
+softdep vc4 pre: snd-soc-hdmi-codec
+softdep mtk_dp pre: phy_mtk_dp
+softdep lima pre: governor_simpleondemand
+softdep panfrost pre: governor_simpleondemand
+softdep wm8994 pre: wm8994_regulator
+softdep genet pre: mdio-bcm-unimac
+softdep xt_LOG pre: nf_log_syslog
