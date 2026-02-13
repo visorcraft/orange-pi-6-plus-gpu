@@ -42,8 +42,10 @@ sudo cp downloads/$VERSION/boot/initrd.img-* /boot/
 sudo cp downloads/$VERSION/boot/config-* /boot/
 
 # Device tree
-sudo mkdir -p /boot/dtb
-sudo cp downloads/$VERSION/boot/dtb/*.dtb /boot/dtb/
+# IMPORTANT: do NOT rely on /boot/dtb/ here.
+# On Armbian, /boot/dtb is often a symlink owned by the distro and can be overwritten
+# during kernel updates. Keep the Sky1 DTB as its own file under /boot.
+sudo cp downloads/$VERSION/boot/dtb/sky1-orangepi-6-plus.dtb /boot/sky1-orangepi-6-plus.dtb
 
 # Modules
 sudo cp -a downloads/$VERSION/lib-modules-* /lib/modules/
