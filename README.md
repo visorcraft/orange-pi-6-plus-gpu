@@ -345,6 +345,8 @@ glmark2-es2-drm --winsys-options "drm-device=/dev/dri/card5"
 
 ### glmark2 — OpenGL ES 3.1, 1920×1080 HDMI
 
+Baseline run (full suite):
+
 | Scene | FPS | Scene | FPS |
 |-------|:---:|-------|:---:|
 | texture nearest | 5,848 | bump normals | 5,847 |
@@ -356,6 +358,17 @@ glmark2-es2-drm --winsys-options "drm-device=/dev/dri/card5"
 | desktop shadow | 2,974 | refract | 2,636 |
 | ideas | 2,274 | effect2d 5×5 | 1,690 |
 | desktop blur | 702 | terrain (heavy) | 130 |
+
+Recent run (2026-02-13, *partial*):
+
+- `kmscube -c 600`: **~59.99 fps** (vsync-limited)
+- `glmark2-es2-drm --winsys-options drm-device=/dev/dri/card5 -b refract --off-screen`:
+  - **refract FPS:** **172**
+  - **glmark2 Score:** **171**
+
+Notes:
+- If you see `Failed to become DRM master (hint: glmark2-drm needs to be run in a VT)`, rerun from a real VT / console session so the benchmark can take DRM master cleanly.
+- PanVK Vulkan compute offload is currently unstable for large workloads (OOM / DeviceLost). `llama-bench-vulkan` only succeeds with very small batches/prompts so far.
 
 ### Vulkan Buffer Bandwidth
 
