@@ -366,6 +366,25 @@ Recent run (2026-02-13, *partial*):
   - **refract FPS:** **172**
   - **glmark2 Score:** **171**
 
+Proper rerun (2026-02-13, full suite, executed from VT2):
+
+- Command:
+  - `glmark2-es2-drm --winsys-options drm-device=/dev/dri/card5`
+- Output file: `/tmp/glmark2-fullsuite-vt2-20260213-090142.txt`
+- **glmark2 Score:** **3079**
+- Surface: **1920×1080 fullscreen**
+- Selected scenes (FPS):
+  - `build use-vbo=true`: **4376**
+  - `texture nearest`: **4712**
+  - `bump normals`: **5933**
+  - `pulsar`: **4217**
+  - `desktop blur`: **659**
+  - `desktop shadow`: **2736**
+  - `ideas`: **2003**
+  - `jellyfish`: **2831**
+  - `terrain <default>`: **84** *(note: baseline table lists `terrain (heavy)`; not directly comparable)*
+  - `refract`: **186** *(note: baseline table lists 2636 FPS; likely captured under different conditions or needs revalidation)*
+
 Notes:
 - If you see `Failed to become DRM master (hint: glmark2-drm needs to be run in a VT)`, rerun from a real VT / console session so the benchmark can take DRM master cleanly.
 - PanVK Vulkan compute offload is currently unstable for large workloads (OOM / DeviceLost). `llama-bench-vulkan` only succeeds with very small batches/prompts so far.
