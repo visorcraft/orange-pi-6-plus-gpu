@@ -12,7 +12,7 @@ menuentry "Sky1 Linux, with Linux 6.19.0-rc8-sky1-rc.r6 (GPU+NPU)" --class debia
 	echo "Loading initial ramdisk ..."
 	initrd /boot/initrd.img-6.19.0-rc8-sky1-rc.r6
 	echo "Loading device tree ..."
-	devicetree /boot/dtb/sky1-orangepi-6-plus.dtb
+	devicetree /boot/sky1-orangepi-6-plus.dtb
 }
 
 menuentry "Armbian, with Linux 6.18.9-current-arm64" --class armbian --class gnu-linux --class gnu --class os {
@@ -38,5 +38,5 @@ menuentry "Sky1 Rebuild Test" --class debian --class gnu-linux --class gnu --cla
 	echo "Loading initial ramdisk ..."
 	initrd /boot/initrd.img-6.19.0-rc8-sky1-rc.r6
 	echo "Loading device tree ..."
-	devicetree /boot/dtb/sky1-orangepi-6-plus.dtb
+	devicetree /boot/sky1-orangepi-6-plus.dtb
 }
