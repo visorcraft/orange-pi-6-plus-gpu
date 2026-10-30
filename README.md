@@ -224,11 +224,15 @@ sudo cp downloads/$VERSION/boot/initrd.img-* /boot/
 sudo cp downloads/$VERSION/boot/config-* /boot/
 
 # Device tree
-sudo mkdir -p /boot/dtb
-sudo cp downloads/$VERSION/boot/dtb/*.dtb /boot/dtb/
+# Do not install this under /boot/dtb/. On Armbian that path is often a
+# distro symlink and a later kernel update replaces it.
+sudo cp downloads/$VERSION/boot/dtb/sky1-orangepi-6-plus.dtb /boot/sky1-orangepi-6-plus.dtb
 
 # Modules
-sudo cp -a downloads/$VERSION/lib-modules-* /lib/modules/
+# The tree in this repo is named lib-modules-$VERSION. depmod looks up
+# /lib/modules/$VERSION, so the destination directory must use that name.
+sudo rm -rf "/lib/modules/${VERSION:?}"
+sudo cp -a downloads/$VERSION/lib-modules-$VERSION /lib/modules/$VERSION
 sudo depmod -a $VERSION
 
 # Firmware
@@ -265,16 +269,19 @@ make ARCH=arm64 -j$(nproc) Image modules dtbs
 
 **⚠️ `acpi=off` is mandatory.** Without it, the GPU will not power on.
 
-Create a GRUB entry (see [`gpu/grub/06_sky1`](gpu/grub/06_sky1) for a complete template):
+Create a GRUB entry (see [`gpu/grub/06_sky1`](gpu/grub/06_sky1) for a complete template). Replace `YOUR-ROOT-UUID` with the output of `findmnt -no UUID /`. Install that file as `/etc/grub.d/06_sky1` (mode `0755`) and run `update-grub`, then boot the "Sky1 Linux" entry. An Armbian-generated entry for this vmlinuz does not load the device tree, so the machine comes up on SSH with a dark panel.
+
+`devicetree` has to come after `linux` and `initrd`, and it has to name `/boot/sky1-orangepi-6-plus.dtb`.
 
 ```
 menuentry "Sky1 Linux (GPU+NPU)" {
     search --no-floppy --fs-uuid --set=root YOUR-ROOT-UUID
     linux /boot/vmlinuz-6.19.0-rc8-sky1-rc.r6 root=UUID=YOUR-ROOT-UUID ro \
+        loglevel=7 console=tty0 console=ttyAMA2,115200 efi=noruntime \
         acpi=off clk_ignore_unused linlon_dp.enable_fb=1 \
         linlon_dp.enable_render=0 fbcon=map:01111111 rootwait
     initrd /boot/initrd.img-6.19.0-rc8-sky1-rc.r6
-    devicetree /boot/dtb/sky1-orangepi-6-plus.dtb
+    devicetree /boot/sky1-orangepi-6-plus.dtb
 }
 ```
 
@@ -285,6 +292,8 @@ menuentry "Sky1 Linux (GPU+NPU)" {
 | `clk_ignore_unused` | Prevents kernel from disabling clocks that appear unused |
 | `linlon_dp.enable_fb=1` | Enable framebuffer on Linlon display controller |
 | `linlon_dp.enable_render=0` | Disable render mode (use GPU for acceleration) |
+| `console=tty0` | Framebuffer console on the HDMI panel |
+| `efi=noruntime` | Leave EFI runtime services unused (matches the tested entry) |
 | `fbcon=map:01111111` | Map virtual consoles to framebuffer |
 | `rootwait` | Wait for root device (NVMe) |
 

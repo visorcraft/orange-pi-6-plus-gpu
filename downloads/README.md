@@ -22,7 +22,7 @@ Each subfolder is named by kernel version.
 │   ├── config-<version>            # Kernel config
 │   └── dtb/
 │       └── sky1-orangepi-6-plus.dtb  # Device tree blob
-├── lib-modules-<version>/          # Kernel modules (/lib/modules/)
+├── lib-modules-<version>/          # install as /lib/modules/<version>/
 └── firmware/
     ├── arm/mali/                   # Mali-G720 CSF firmware (ARM Ltd, proprietary)
     ├── dsp_fw.bin                  # Audio DSP firmware (CIX, proprietary)
@@ -48,7 +48,10 @@ sudo cp downloads/$VERSION/boot/config-* /boot/
 sudo cp downloads/$VERSION/boot/dtb/sky1-orangepi-6-plus.dtb /boot/sky1-orangepi-6-plus.dtb
 
 # Modules
-sudo cp -a downloads/$VERSION/lib-modules-* /lib/modules/
+# The tree in this repo is named lib-modules-$VERSION. depmod looks up
+# /lib/modules/$VERSION, so the destination directory must use that name.
+sudo rm -rf "/lib/modules/${VERSION:?}"
+sudo cp -a downloads/$VERSION/lib-modules-$VERSION /lib/modules/$VERSION
 sudo depmod -a $VERSION
 
 # Firmware
@@ -57,7 +60,7 @@ sudo cp downloads/$VERSION/firmware/dsp_fw.bin /lib/firmware/
 sudo cp downloads/$VERSION/firmware/*.fwb /lib/firmware/
 ```
 
-Then create a GRUB entry — see [../gpu/grub/11_sky1](../gpu/grub/11_sky1) for the template.
+Then create a GRUB entry. The template is [`../gpu/grub/06_sky1`](../gpu/grub/06_sky1). Replace `YOUR-ROOT-UUID` in that file with the output of `findmnt -no UUID /`, install it as `/etc/grub.d/06_sky1` (mode `0755`), and run `update-grub`. Boot the "Sky1 Linux" entry. An Armbian-generated entry for this vmlinuz does not load the device tree.
 
 ## Licenses
 
